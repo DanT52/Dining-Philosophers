@@ -21,6 +21,7 @@ typedef struct {
     int cycles;
 } PhilosopherData;
 
+//rng function
 int randomGaussian(int mean, int stddev) {
     double mu = 0.5 + (double) mean;
     double sigma = fabs((double) stddev);
@@ -32,101 +33,109 @@ int randomGaussian(int mean, int stddev) {
         return (int) floor(mu + sigma * sin(f2) * f1);
 }
 
+//philosopher cycle / meal routuine
 void philosopher(int i, int semid, PhilosopherData *data){
-	struct sembuf putdownforks[2] = {{i,1,0}, {(i+1)%PHILOSOPHERS,1,0}};
-	struct sembuf pickupforks_nowait[2] = {{i,-1,IPC_NOWAIT}, {(i+1)%PHILOSOPHERS,-1,IPC_NOWAIT}};
-	struct sembuf pickupforks[2] = {{i,-1,0}, {(i+1)%PHILOSOPHERS,-1,0}};
 
+	struct sembuf putdownchops[2] = {{i,1,0}, {(i+1)%PHILOSOPHERS,1,0}};
+	struct sembuf checkforchops[2] = {{i,-1,IPC_NOWAIT}, {(i+1)%PHILOSOPHERS,-1,IPC_NOWAIT}};
+	struct sembuf pickupchops[2] = {{i,-1,0}, {(i+1)%PHILOSOPHERS,-1,0}};
 
+	//seed for the rng
 	srand(time(NULL) ^ getpid());
     int eatTimeTotal = 0, thinkTimeTotal = 0, cycles = 0;
 
 	while (eatTimeTotal < EATING_TIME) {
                 cycles++;
                 
-                // Thinking
+                // thinking phase
                 int thinkTime = randomGaussian(11, 7);
                 if (thinkTime < 0) thinkTime = 0;
-                
                 printf("Philosopher %d thinking for %d seconds (total = %d)\n", i, thinkTime, thinkTimeTotal);
 				thinkTimeTotal += thinkTime;
                 sleep(thinkTime);
-				if (semop(semid, pickupforks_nowait, 2) == -1) {
+
+				// trying to pick up chopsticks
+				if (semop(semid, checkforchops, 2) == -1) {
+					int res = 1;
 					if (errno == EAGAIN) {
-
 						printf("Philosopher %d waiting for sticks %d and %d.\n", i, i, (i+1)%PHILOSOPHERS);
-						semop(semid, pickupforks, 2);
-
-
-						// continue; // Go back to thinking if both forks are not available
-
-					} else {
-						perror("semop");
-						exit(EXIT_FAILURE);
+						res = semop(semid, pickupchops, 2);
+					} 
+					else if (errno != EAGAIN || res == -1){
+						fprintf(stderr, "ERROR: Philosipher %d error pickup sticks. ERRNO: %d , %s \n", i, errno, strerror(errno));
+						exit(1);
 					}
         		}
                 
-                // Eating
+                // eating phase
                 int eatTime = randomGaussian(9, 3);
                 if (eatTime < 0) eatTime = 0;
-
                 printf("Philosopher %d eating for %d seconds (total = %d)\n", i, eatTime, eatTimeTotal);
 				eatTimeTotal += eatTime;
                 sleep(eatTime);
+
+				//put down chopsticks
 				printf("Philosopher %d putting down sticks %d and %d\n", i, i, (i+1)%PHILOSOPHERS);
-				semop(semid, putdownforks, 2);
+				if (semop(semid, putdownchops, 2) == -1){
+					fprintf(stderr, "ERROR: Philosipher %d error dropping sticks. ERRNO: %d , %s \n", i, errno, strerror(errno));
+					exit(1);
+				}
             }
-            
+            //save details about process. print that meal was finished.
             printf("Philosopher %d done with meal (process %d)\n", i, getpid());
             data[i].thinkTimeTotal = thinkTimeTotal;
             data[i].eatTimeTotal = eatTimeTotal;
             data[i].cycles = cycles;
             exit(EXIT_SUCCESS);
-
 }
 
 
 int main() {
 
-	struct timeval start, end;
-    gettimeofday(&start, NULL);
+	struct timeval start, end;	
+    gettimeofday(&start, NULL);	//get time to display total time ran at end.
+
+	//sem and shared mem IDs and the array for philosopher data.
     int semid, shmid;
     PhilosopherData *data;
-	semid = semget(IPC_PRIVATE, PHILOSOPHERS, IPC_CREAT | IPC_EXCL | 0666);
-    shmid = shmget(IPC_PRIVATE, PHILOSOPHERS * sizeof(PhilosopherData), 0666 | IPC_CREAT);
+
+	//make sem and get shared memory
+	semid = semget(IPC_PRIVATE, PHILOSOPHERS, IPC_CREAT | IPC_EXCL | 0600);
+    shmid = shmget(IPC_PRIVATE, PHILOSOPHERS * sizeof(PhilosopherData), 0600 | IPC_CREAT);
     data = (PhilosopherData *)shmat(shmid, NULL, 0);
 
+	// Child process: philosopher start one for each.
     for (int i = 0; i < PHILOSOPHERS; i++) {
         semctl(semid, i, SETVAL, 1);
-        if (fork() == 0) { // Child process: philosopher
-
+        if (fork() == 0) { 
             philosopher(i, semid, data);
         }
     }
     
-    // Waiting for all children to exit
+    // waiting for all children to exit
     for (int i = 0; i < PHILOSOPHERS; i++) {
         wait(NULL);
     }
 
-    // Printing recap
-
+    // printing recap
 	gettimeofday(&end, NULL); // Get the time at the end of execution
-
-    long seconds = (end.tv_sec - start.tv_sec);
-    long micros = ((seconds * 1000000) + end.tv_usec) - (start.tv_usec);
 
 	printf("-\n");
     for (int i = 0; i < PHILOSOPHERS; i++) {
         printf("Philosopher %d thought for %d seconds, ate for %d seconds over %d cycles.\n", 
                i, data[i].thinkTimeTotal, data[i].eatTimeTotal, data[i].cycles);
     }
-
-	printf("Program took %ld seconds Total to execute \n", seconds);
+	printf("Program took %ld seconds Total to execute \n", end.tv_sec - start.tv_sec);
 
     // Cleanup semaphores and shared memory
-    semctl(semid, 0, IPC_RMID);
-    shmctl(shmid, IPC_RMID, NULL);
-    
+     if (semctl(semid, 0, IPC_RMID) == -1) {
+        fprintf(stderr, "ERROR: cleanup semaphore, ERRNO: %d , %s \n", errno, strerror(errno));
+        exit(1);
+    }
+    if (shmctl(shmid, IPC_RMID, NULL) == -1) {
+        fprintf(stderr, "ERROR: cleanup shared mem, ERRNO: %d , %s \n", errno, strerror(errno));
+        exit(1);
+	}
+
     return 0;
 }
