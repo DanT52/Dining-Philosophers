@@ -33,12 +33,31 @@ int randomGaussian(int mean, int stddev) {
         return (int) floor(mu + sigma * sin(f2) * f1);
 }
 
+//function for picking up / waiting to pickup chopsticks
+void pickup(int semid,int i){
+    //sem operations
+    struct sembuf checkforchops[2] = {{i,-1,IPC_NOWAIT}, {(i+1)%PHILOSOPHERS,-1,IPC_NOWAIT}};
+	struct sembuf pickupchops[2] = {{i,-1,0}, {(i+1)%PHILOSOPHERS,-1,0}};
+    //check if will need to wait
+    if (semop(semid, checkforchops, 2) == -1) {
+		int res = 1;
+		if (errno == EAGAIN) {
+			printf("Philosopher %d waiting for sticks %d and %d.\n", i, i, (i+1)%PHILOSOPHERS);
+            //wait
+			res = semop(semid, pickupchops, 2);
+		} 
+		else if (errno != EAGAIN || res == -1){
+			fprintf(stderr, "ERROR: Philosipher %d error pickup sticks. ERRNO: %d , %s \n", i, errno, strerror(errno));
+			    exit(1);
+		}
+    }
+
+}
+
 //philosopher cycle / meal routuine
-void philosopher(int i, int semid, PhilosopherData *data){
+int philosopher(int i, int semid, PhilosopherData *data){
 
 	struct sembuf putdownchops[2] = {{i,1,0}, {(i+1)%PHILOSOPHERS,1,0}};
-	struct sembuf checkforchops[2] = {{i,-1,IPC_NOWAIT}, {(i+1)%PHILOSOPHERS,-1,IPC_NOWAIT}};
-	struct sembuf pickupchops[2] = {{i,-1,0}, {(i+1)%PHILOSOPHERS,-1,0}};
 
 	//seed for the rng
 	srand(time(NULL) ^ getpid());
@@ -55,17 +74,7 @@ void philosopher(int i, int semid, PhilosopherData *data){
                 sleep(thinkTime);
 
 				// trying to pick up chopsticks
-				if (semop(semid, checkforchops, 2) == -1) {
-					int res = 1;
-					if (errno == EAGAIN) {
-						printf("Philosopher %d waiting for sticks %d and %d.\n", i, i, (i+1)%PHILOSOPHERS);
-						res = semop(semid, pickupchops, 2);
-					} 
-					else if (errno != EAGAIN || res == -1){
-						fprintf(stderr, "ERROR: Philosipher %d error pickup sticks. ERRNO: %d , %s \n", i, errno, strerror(errno));
-						exit(1);
-					}
-        		}
+				pickup(semid, i);
                 
                 // eating phase
                 int eatTime = randomGaussian(9, 3);
@@ -86,7 +95,7 @@ void philosopher(int i, int semid, PhilosopherData *data){
             data[i].thinkTimeTotal = thinkTimeTotal;
             data[i].eatTimeTotal = eatTimeTotal;
             data[i].cycles = cycles;
-            exit(EXIT_SUCCESS);
+            exit(0);
 }
 
 
@@ -119,7 +128,6 @@ int main() {
 
     // printing recap
 	gettimeofday(&end, NULL); // Get the time at the end of execution
-
 	printf("-\n");
     for (int i = 0; i < PHILOSOPHERS; i++) {
         printf("Philosopher %d thought for %d seconds, ate for %d seconds over %d cycles.\n", 
