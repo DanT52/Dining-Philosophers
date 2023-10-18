@@ -115,7 +115,7 @@ int main() {
 
 	// Child process: philosopher start one for each.
     for (int i = 0; i < PHILOSOPHERS; i++) {
-        semctl(semid, i, SETVAL, 1);
+        if (semctl(semid, i, SETVAL, 1) == -1)fprintf(stderr, "ERROR: setting sem %d, ERRNO: %d , %s \n", i, errno, strerror(errno));
         if (fork() == 0) { 
             philosopher(i, semid, data);
         }
