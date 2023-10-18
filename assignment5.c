@@ -98,22 +98,8 @@ int philosopher(int i, int semid, PhilosopherData *data){
             exit(0);
 }
 
-
-int main() {
-
-	struct timeval start, end;	
-    gettimeofday(&start, NULL);	//get time to display total time ran at end.
-
-	//sem and shared mem IDs and the array for philosopher data.
-    int semid, shmid;
-    PhilosopherData *data;
-
-	//make sem and get shared memory
-	semid = semget(IPC_PRIVATE, PHILOSOPHERS, IPC_CREAT | IPC_EXCL | 0600);
-    shmid = shmget(IPC_PRIVATE, PHILOSOPHERS * sizeof(PhilosopherData), 0600 | IPC_CREAT);
-    data = (PhilosopherData *)shmat(shmid, NULL, 0);
-
-	// Child process: philosopher start one for each.
+void runphilosophers(int semid, PhilosopherData *data){
+    // Child process: philosopher start one for each. also set all semaphores
     for (int i = 0; i < PHILOSOPHERS; i++) {
         if (semctl(semid, i, SETVAL, 1) == -1)fprintf(stderr, "ERROR: setting sem %d, ERRNO: %d , %s \n", i, errno, strerror(errno));
         if (fork() == 0) { 
@@ -126,14 +112,43 @@ int main() {
         wait(NULL);
     }
 
-    // printing recap
-	gettimeofday(&end, NULL); // Get the time at the end of execution
-	printf("-\n");
+}
+
+void printRecap(PhilosopherData *data, long int timePassed){
+    printf("-\n");
     for (int i = 0; i < PHILOSOPHERS; i++) {
         printf("Philosopher %d thought for %d seconds, ate for %d seconds over %d cycles.\n", 
                i, data[i].thinkTimeTotal, data[i].eatTimeTotal, data[i].cycles);
     }
-	printf("Program took %ld seconds Total to execute \n", end.tv_sec - start.tv_sec);
+	printf("Program took %ld seconds Total to execute \n", timePassed);
+
+}
+
+int main() {
+
+	struct timeval start, end;	
+    gettimeofday(&start, NULL);	//get time to display total time ran at end.
+
+	//make sem and get shared memory
+	int semid = semget(IPC_PRIVATE, PHILOSOPHERS, IPC_CREAT | IPC_EXCL | 0600);
+    int shmid = shmget(IPC_PRIVATE, PHILOSOPHERS * sizeof(PhilosopherData), 0600 | IPC_CREAT);
+    if (semid == -1 || shmid == -1){
+        fprintf(stderr, "ERROR: geting shm or sem, ERRNO: %d , %s \n", errno, strerror(errno));
+        exit(1);
+    }
+    PhilosopherData *data = (PhilosopherData *)shmat(shmid, NULL, 0);
+    if (data == (void *)-1) {
+    perror("shmat");
+    fprintf(stderr, "Error attaching shared memory: %s\n", strerror(errno));
+    exit(1);
+    }
+
+    //run philosophers simulation
+	runphilosophers(semid, data);
+
+    // printing recap
+	gettimeofday(&end, NULL); // Get the time at the end of execution
+    printRecap(data, end.tv_sec - start.tv_sec);
 
     // Cleanup semaphores and shared memory
      if (semctl(semid, 0, IPC_RMID) == -1) {
