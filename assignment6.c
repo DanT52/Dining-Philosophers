@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #define PHILOSOPHERS 5
-#define EATING_TIME 10
+#define EATING_TIME 100
 
 
 typedef struct {
@@ -64,24 +64,31 @@ void *philosopher_thread(void *args){
                 sleep(thinkTime);
 
 				// trying to pick up chopsticks
-				if(pthread_mutex_trylock(&threadArgs->mutexes[num]) == 0){
-                    if (pthread_mutex_trylock(&threadArgs->mutexes[(num+1)%PHILOSOPHERS]) == 0){
-                        int eatTime = randomGaussian(9, 3);
-                        if (eatTime < 0) eatTime = 0;
-
-                        printf("Philosopher %d eating for %d seconds (total = %d)\n", num, eatTime, eatTimeTotal);
-                        eatTimeTotal += eatTime;
-                        sleep(eatTime);
-
-                        pthread_mutex_unlock(&threadArgs->mutexes[(num+1)%PHILOSOPHERS]);
-                        
-                            
+                int first = 1;
+                while(1){
+                    if(pthread_mutex_trylock(&threadArgs->mutexes[num]) == 0){
+                        if (pthread_mutex_trylock(&threadArgs->mutexes[(num+1)%PHILOSOPHERS]) == 0){
+                            break;
+                        }
+                        pthread_mutex_unlock(&threadArgs->mutexes[num]);
                     }
-                        
-                    pthread_mutex_unlock(&threadArgs->mutexes[num]);
+                    if (first){
+                        printf("Philosopher %d waiting for sticks %d and %d\n", num, num, (num+1) % PHILOSOPHERS);
+                        first = 0;
+                    }
+                    
                 }
                 
                 // eating phase
+                int eatTime = randomGaussian(9, 3);
+                if (eatTime < 0) eatTime = 0;
+
+                printf("Philosopher %d eating for %d seconds (total = %d)\n", num, eatTime, eatTimeTotal);
+                eatTimeTotal += eatTime;
+                sleep(eatTime);
+                printf("Philosopher %d putting down sticks %d and %d\n", num, num, (num+1) % PHILOSOPHERS);
+                pthread_mutex_unlock(&threadArgs->mutexes[num]);
+                pthread_mutex_unlock(&threadArgs->mutexes[(num+1)%PHILOSOPHERS]);
                 
             }
             //save details about process. print that meal was finished.
@@ -107,6 +114,10 @@ void end_mutexes(pthread_mutex_t *mutexes){
 }
 
 int main(){
+
+    struct timeval start, end;	
+    gettimeofday(&start, NULL);	//get time to display total time ran at end.
+
     pthread_t philos_thread[PHILOSOPHERS];
 
     //initialize mutexes
@@ -134,14 +145,15 @@ int main(){
 
 
     //print results
-    printf("\n");
+    printf("-\n");
     for(int i = 0; i < PHILOSOPHERS; i++){
         printf("Philosopher %d thought for %d seconds, ate for %d seconds over %d cycles.\n", 
                i, data[i].thinkTimeTotal, data[i].eatTimeTotal, data[i].cycles);
     }
 
-
-    printf("done\n");
+    gettimeofday(&end, NULL);
+    long int timePassed = end.tv_sec - start.tv_sec;
+    printf("Program took %ld seconds Total to execute \n", timePassed);
 
 
 
