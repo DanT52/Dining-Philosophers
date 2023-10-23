@@ -51,6 +51,10 @@ void *philosopher_thread(void *args){
     PhilosopherData *data = threadArgs->data;
     int num = threadArgs->num;
 
+    int right = num;
+    int left = (num+1)%PHILOSOPHERS;
+
+
 	//seed for the rng
 	srand(time(NULL) * num);
     int eatTimeTotal = 0, thinkTimeTotal = 0, cycles = 0;
@@ -59,7 +63,7 @@ void *philosopher_thread(void *args){
                 cycles++;
                 
                 // thinking phase
-                int thinkTime = randomGaussian(11, 7);
+                int thinkTime = 0; // randomGaussian(11, 7);
                 if (thinkTime < 0) thinkTime = 0;
                 printf("Philosopher %d thinking for %d seconds (total = %d)\n", num, thinkTime, thinkTimeTotal);
 				thinkTimeTotal += thinkTime;
@@ -67,30 +71,30 @@ void *philosopher_thread(void *args){
 
                 
                 int first = 1;
-                if(pthread_mutex_trylock(&threadArgs->mutexes[num]) != 0){
-                    printf("Philosopher %d waiting for sticks %d and %d\n", num, num, (num+1) % PHILOSOPHERS);
-                    first = 0;
-                    pthread_mutex_lock(&mutex[num]);
-                }
-
+                // if(pthread_mutex_trylock(&threadArgs->mutexes[right]) != 0){
+                //     printf("Philosopher %d waiting for sticks %d and %d\n", num, right, left);
+                //     first = 0;
+                //     pthread_mutex_lock(&mutex[num]);
+                // }
+                pthread_mutex_lock(&mutex[num]);
                 while (1){
-                    if (pthread_mutex_trylock(&threadArgs->mutexes[(num+1)%PHILOSOPHERS]) == 0){
+                    if (pthread_mutex_trylock(&threadArgs->mutexes[left]) == 0){
                         break;
                     }
-                    if (first) printf("Philosopher %d waiting for sticks %d and %d\n", num, num, (num+1) % PHILOSOPHERS);
-                    pthread_cond_wait(&cond_vars[num], &threadArgs->mutexes[num]);
+                    //if (first) printf("Philosopher %d waiting for sticks %d and %d\n", num, right, left);
+                    pthread_cond_wait(&cond_vars[num], &threadArgs->mutexes[right]);
                 }
 
                 // eating phase
-                int eatTime = randomGaussian(9, 3);
+                int eatTime = 0; // randomGaussian(9, 3);
                 if (eatTime < 0) eatTime = 0;
 
                 printf("Philosopher %d eating for %d seconds (total = %d)\n", num, eatTime, eatTimeTotal);
                 eatTimeTotal += eatTime;
                 sleep(eatTime);
                 printf("Philosopher %d putting down sticks %d and %d\n", num, num, (num+1) % PHILOSOPHERS);
-                pthread_mutex_unlock(&mutex[(num+1)%PHILOSOPHERS]);
-                pthread_mutex_unlock(&mutex[num]);
+                pthread_mutex_unlock(&mutex[right]);
+                pthread_mutex_unlock(&mutex[left]);
                 pthread_cond_signal(&cond_vars[(num+1)%PHILOSOPHERS]);
                 pthread_cond_signal(&cond_vars[(num-1+PHILOSOPHERS)%PHILOSOPHERS]);
                 
