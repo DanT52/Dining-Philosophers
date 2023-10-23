@@ -57,7 +57,7 @@ void *philosopher_thread(void *args){
                 cycles++;
                 
                 // thinking phase
-                int thinkTime = randomGaussian(11, 7);
+                int thinkTime = 0; //randomGaussian(11, 7);
                 if (thinkTime < 0) thinkTime = 0;
                 printf("Philosopher %d thinking for %d seconds (total = %d)\n", num, thinkTime, thinkTimeTotal);
 				thinkTimeTotal += thinkTime;
@@ -80,7 +80,7 @@ void *philosopher_thread(void *args){
                 }
                 
                 // eating phase
-                int eatTime = randomGaussian(9, 3);
+                int eatTime = 0;//randomGaussian(9, 3);
                 if (eatTime < 0) eatTime = 0;
 
                 printf("Philosopher %d eating for %d seconds (total = %d)\n", num, eatTime, eatTimeTotal);
