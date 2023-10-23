@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #define PHILOSOPHERS 5
-#define EATING_TIME 100
+#define EATING_TIME 10
 
 
 typedef struct {
@@ -20,6 +20,7 @@ typedef struct {
     PhilosopherData *data;
     int num;
     pthread_mutex_t *mutexes;
+    pthread_cond_t *cond_variables;
 } ThreadArgs;
 
 //rng function
@@ -46,11 +47,12 @@ void *philosopher_thread(void *args){
     //take apart the args
     ThreadArgs *threadArgs = (ThreadArgs *)args;
     pthread_mutex_t *mutex = threadArgs->mutexes;
+    pthread_cond_t *cond_vars = threadArgs->cond_variables;
     PhilosopherData *data = threadArgs->data;
     int num = threadArgs->num;
 
 	//seed for the rng
-	srand(time(NULL) + num);
+	srand(time(NULL) * num);
     int eatTimeTotal = 0, thinkTimeTotal = 0, cycles = 0;
 
 	while (eatTimeTotal < EATING_TIME) {
@@ -63,22 +65,22 @@ void *philosopher_thread(void *args){
 				thinkTimeTotal += thinkTime;
                 sleep(thinkTime);
 
-				// trying to pick up chopsticks
-                int first = 1;
-                while(1){
-                    if(pthread_mutex_trylock(&threadArgs->mutexes[num]) == 0){
-                        if (pthread_mutex_trylock(&threadArgs->mutexes[(num+1)%PHILOSOPHERS]) == 0){
-                            break;
-                        }
-                        pthread_mutex_unlock(&threadArgs->mutexes[num]);
-                    }
-                    if (first){
-                        printf("Philosopher %d waiting for sticks %d and %d\n", num, num, (num+1) % PHILOSOPHERS);
-                        first = 0;
-                    }
-                    
-                }
                 
+                int first = 1;
+                if(pthread_mutex_trylock(&threadArgs->mutexes[num]) != 0){
+                    printf("Philosopher %d waiting for sticks %d and %d\n", num, num, (num+1) % PHILOSOPHERS);
+                    first = 0;
+                    pthread_mutex_lock(&mutex[num]);
+                }
+
+                while (1){
+                    if (pthread_mutex_trylock(&threadArgs->mutexes[(num+1)%PHILOSOPHERS]) == 0){
+                        break;
+                    }
+                    if (first) printf("Philosopher %d waiting for sticks %d and %d\n", num, num, (num+1) % PHILOSOPHERS);
+                    pthread_cond_wait(&cond_vars[num], &threadArgs->mutexes[num]);
+                }
+
                 // eating phase
                 int eatTime = randomGaussian(9, 3);
                 if (eatTime < 0) eatTime = 0;
@@ -87,8 +89,10 @@ void *philosopher_thread(void *args){
                 eatTimeTotal += eatTime;
                 sleep(eatTime);
                 printf("Philosopher %d putting down sticks %d and %d\n", num, num, (num+1) % PHILOSOPHERS);
-                pthread_mutex_unlock(&threadArgs->mutexes[num]);
-                pthread_mutex_unlock(&threadArgs->mutexes[(num+1)%PHILOSOPHERS]);
+                pthread_mutex_unlock(&mutex[(num+1)%PHILOSOPHERS]);
+                pthread_mutex_unlock(&mutex[num]);
+                pthread_cond_signal(&cond_vars[(num+1)%PHILOSOPHERS]);
+                pthread_cond_signal(&cond_vars[(num-1+PHILOSOPHERS)%PHILOSOPHERS]);
                 
             }
             //save details about process. print that meal was finished.
@@ -99,16 +103,29 @@ void *philosopher_thread(void *args){
             
 }
 
-void init_mutexes(pthread_mutex_t *mutexes){
+pthread_mutex_t* init_mutexes(){
+    pthread_mutex_t *mutexes = malloc(PHILOSOPHERS * sizeof(pthread_mutex_t));
+
     for(int i = 0; i < PHILOSOPHERS; i++){
         pthread_mutex_init(&mutexes[i], NULL);
     }
+    return mutexes;
 }
 
-void end_mutexes(pthread_mutex_t *mutexes){
+pthread_cond_t* init_conds(){
+    pthread_cond_t *cond_vars = malloc(PHILOSOPHERS * sizeof(pthread_cond_t));
+
+    for(int i = 0; i < PHILOSOPHERS; i++){
+        pthread_cond_init(&cond_vars[i], NULL);
+    }
+    return cond_vars;
+}
+
+void end_mutexes_conds(pthread_mutex_t *mutexes, pthread_cond_t *cond_vars){
+
     for(int i = 0; i < PHILOSOPHERS; i++){
         pthread_mutex_destroy(&mutexes[i]);
-
+        pthread_cond_destroy(&cond_vars[i]);
     }
     free(mutexes);
 }
@@ -121,8 +138,9 @@ int main(){
     pthread_t philos_thread[PHILOSOPHERS];
 
     //initialize mutexes
-    pthread_mutex_t *mutexes = malloc(PHILOSOPHERS * sizeof(pthread_mutex_t));
-    init_mutexes(mutexes);
+    pthread_mutex_t *mutexes = init_mutexes();
+    pthread_cond_t *cond_vars = init_conds();
+    
 
     //allocate philosopher data
     PhilosopherData *data = malloc(PHILOSOPHERS * sizeof(PhilosopherData));
@@ -132,6 +150,7 @@ int main(){
     for (int i = 0; i< PHILOSOPHERS; i++){
         threadArgs[i] = malloc(sizeof(ThreadArgs));
         threadArgs[i]->mutexes = mutexes;
+        threadArgs[i]->cond_variables = cond_vars;
         threadArgs[i]->data = &data[i];
         threadArgs[i]->num =i;
 
@@ -157,7 +176,7 @@ int main(){
 
 
 
-    end_mutexes(mutexes);
+    end_mutexes_conds(mutexes, cond_vars);
     free(data);
 
 }
