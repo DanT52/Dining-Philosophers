@@ -9,7 +9,7 @@
 #include <errno.h>
 
 #define PHILOSOPHERS 5
-#define EATING_TIME 10
+#define EATING_TIME 100
 
 
 typedef struct {
@@ -196,7 +196,7 @@ int main(){
     pthread_mutex_t *mutexes = init_mutexes();
     pthread_cond_t *cond_vars = init_conds();
     PhilosopherData *data = run_philosophers(philos_thread, mutexes, cond_vars);  //run philosophers
-    
+
     //print results
     printf("-\n");
     for(int i = 0; i < PHILOSOPHERS; i++){
